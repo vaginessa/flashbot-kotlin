@@ -1,5 +1,4 @@
-![[screenshots/kadb_banner.png]]
-
+![banner](https://raw.githubusercontent.com/BadKiko/kflashbot/master/screenshots/kadb_banner.png)
 ## Что такое KFlashbot
 
 KFlashbot - это библиотека для подключения к ADB устройству чер ез TCP (Или USB) с другого Android устройства через [adbd](https://android.googlesource.com/platform/system/core/+/android-4.4_r1/adb), первоначально библиотека была написана [cgutman](https://github.com/cgutman) , а затем дополнена USB каналом  [wuxudong](https://github.com/wuxudong). Это и есть форк библиотеки [wuxudong](https://github.com/wuxudong), но переписанная на Kotlin и дополненная для удобного использования 
