@@ -1,5 +1,7 @@
 package com.kiko.kadblib
 
+import android.util.Base64
+
 /**
  * This interface specifies the required functions for AdbCrypto to
  * perform Base64 encoding of its public key.
@@ -15,4 +17,10 @@ interface AdbBase64 {
      * @return String containing base 64 encoded data
      */
     fun encodeToString(data: ByteArray?): String?
+}
+
+class StandardAdbBase64 : AdbBase64 {
+    override fun encodeToString(data: ByteArray?): String? {
+        return Base64.encodeToString(data, Base64.NO_WRAP)
+    }
 }

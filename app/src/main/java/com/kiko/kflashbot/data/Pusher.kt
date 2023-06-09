@@ -62,8 +62,6 @@ class Pusher {
             )
         )
         val res: ByteArray = stream.read()!!
-        // TODO: test if res contains "OKEY" or "FAIL"
-        Log.d(Consts.TAG, String(res))
         stream.write(ByteUtils.concat("QUIT".toByteArray(), ByteUtils.intToByteArray(0)))
     }
 }

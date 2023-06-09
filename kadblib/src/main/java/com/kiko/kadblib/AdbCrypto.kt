@@ -1,5 +1,7 @@
 package com.kiko.kadblib
 
+import android.content.Context
+import android.util.Log
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -230,5 +232,39 @@ class AdbCrypto {
             crypto.base64 = base64
             return crypto
         }
+    }
+}
+
+
+
+object DefaultADBCrypto {
+    fun getDefault(context: Context): AdbCrypto? {
+        return createAdbCrypto(context)
+    }
+
+    private fun createAdbCrypto(context: Context): AdbCrypto? {
+        val base64: AdbBase64 = StandardAdbBase64()
+        var crypto: AdbCrypto? = null
+        try {
+            crypto = AdbCrypto.loadAdbKeyPair(
+                base64,
+                File(context.filesDir, "private_key"),
+                File(context.filesDir, "public_key")
+            )
+        } catch (e: Exception) {
+        }
+
+        if (crypto == null) {
+            try {
+                crypto = AdbCrypto.generateAdbKeyPair(base64)
+                crypto.saveAdbKeyPair(
+                    File(context.filesDir, "private_key"),
+                    File(context.filesDir, "public_key")
+                )
+            } catch (e: Exception) {
+                Log.w("ADBCrypto", "Failed to generate and save key-pair", e)
+            }
+        }
+        return crypto
     }
 }

@@ -1,10 +1,12 @@
-package com.kiko.kadblib
+package com.kiko.kadblib.channel
 
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbRequest
+import com.kiko.kadblib.AdbChannel
+import com.kiko.kadblib.AdbMessage
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

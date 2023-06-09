@@ -1,7 +1,16 @@
 package com.kiko.kadblib
 
+import android.content.Context
+import android.util.Log
+import com.kiko.kadblib.states.ConnectionResult
+import com.kiko.kadblib.states.ConnectionState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.Closeable
 import java.io.IOException
 import java.io.UnsupportedEncodingException
@@ -9,21 +18,19 @@ import java.net.ConnectException
 
 /**
  * This class represents an ADB connection.
+ * Класс для работы с подключением к ADB
  * @author Cameron Gutman
+ * @author BadKiko
  */
-class AdbConnection private constructor() : Closeable {
+class AdbConnection private constructor() {
     var channel: AdbChannel? = null
 
     /** The last allocated local stream ID. The ID
      * chosen for the next stream will be this value + 1.
      */
     private var lastLocalId = 0
-
-    /**
-     * The backend thread that handles responding to ADB packets.
-     */
-    private val connectionThread: Thread?
-
+    /*
+        */
     /**
      * Specifies whether a connect has been attempted
      */
@@ -48,7 +55,7 @@ class AdbConnection private constructor() : Closeable {
     /**
      * Delay to connect
      */
-    private var delay: Long = 10_000
+    private var timeout: Long = 10_000
 
 
     /**
@@ -59,113 +66,121 @@ class AdbConnection private constructor() : Closeable {
     /**
      * A hash map of our open streams indexed by local ID.
      */
-    private val openStreams: HashMap<Int, AdbStream>
+    private val openStreams: HashMap<Int, AdbStream> = HashMap<Int, AdbStream>()
 
-    /**
-     * Internal constructor to initialize some internal state
-     */
-    init {
-        openStreams = HashMap<Int, AdbStream>()
-        connectionThread = createConnectionThread()
+    lateinit var connectionResult: ConnectionResult
+
+    companion object {
+        /**
+         * Creates a AdbConnection object associated with the socket and
+         * crypto object specified.
+         * @param channel The channel that the connection will use for communcation.
+         * @param crypto The crypto object that stores the key pair for authentication.
+         * @param timeToCloseConnection Given time for connecting to device
+         * @return A new AdbConnection object.
+         * @throws java.io.IOException If there is a socket error
+         */
+        @Throws(IOException::class)
+        fun create(
+            channel: AdbChannel?,
+            crypto: AdbCrypto?,
+            connectionResult: ConnectionResult,
+            timeToCloseConnection: Long = 10_000,
+        ): AdbConnection {
+            val newConn = AdbConnection()
+            newConn.timeout = timeToCloseConnection
+            newConn.crypto = crypto
+            newConn.channel = channel
+            newConn.connectionResult = connectionResult
+            return newConn
+        }
     }
 
-    /**
-     * Creates a new connection thread.
-     * @return A new connection thread.
-     */
-    private fun createConnectionThread(): Thread {
-        val conn = this
-        return Thread(Runnable {
-            while (!connectionThread!!.isInterrupted) {
-                try {
-                    /* Read and parse a message off the socket's input stream */
-                    val msg: AdbMessage = AdbMessage.parseAdbMessage(channel!!)
+    private fun doAdbWork() {
+        val currentAdbConnection = this
+        while (true) {
+            try {
+                /* Read and parse a message off the socket's input stream */
+                Log.d("ADBConnector", channel.toString())
+                val msg: AdbMessage = AdbMessage.parseAdbMessage(channel!!)
 
-                    /* Verify magic and checksum */if (!AdbProtocol.validateMessage(msg)) continue
-                    when (msg.command) {
-                        AdbProtocol.CMD_OKAY, AdbProtocol.CMD_WRTE, AdbProtocol.CMD_CLSE -> {
-                            /* We must ignore all packets when not connected */if (!conn.connected) continue
 
-                            /* Get the stream object corresponding to the packet */
-                            val waitingStream: AdbStream =
-                                openStreams[msg.arg1] ?: continue
-                            synchronized(waitingStream) {
-                                if (msg.command == AdbProtocol.CMD_OKAY) {
-                                    /* We're ready for writes */
-                                    waitingStream.updateRemoteId(msg.arg0)
-                                    waitingStream.readyForWrite()
+                Log.d("ADBConnector", AdbProtocol.validateMessage(msg).toString())
+                /* Verify magic and checksum */
+                if (!AdbProtocol.validateMessage(msg)) return
 
-                                    /* Unwait an open/write */waitingStream.notifyClose()
-                                } else if (msg.command == AdbProtocol.CMD_WRTE) {
-                                    /* Got some data from our partner */
-                                    waitingStream.addPayload(msg.payload!!)
+                when (msg.command) {
+                    AdbProtocol.CMD_OKAY, AdbProtocol.CMD_WRTE, AdbProtocol.CMD_CLSE -> {
+                        /* We must ignore all packets when not connected */
+                        if (!currentAdbConnection.connected) return
 
-                                    /* Tell it we're ready for more */waitingStream.sendReady()
-                                } else if (msg.command == AdbProtocol.CMD_CLSE) {
-                                    /* He doesn't like us anymore :-( */
-                                    conn.openStreams.remove(msg.arg1)
+                        /* Get the stream object corresponding to the packet */
+                        val waitingStream: AdbStream = openStreams[msg.arg1] ?: return
 
-                                    /* Notify readers and writers */waitingStream.notifyClose()
-                                }
+                        synchronized(waitingStream) {
+                            if (msg.command == AdbProtocol.CMD_OKAY) {
+                                /* We're ready for writes */
+                                waitingStream.updateRemoteId(msg.arg0)
+                                waitingStream.readyForWrite()
+
+                                /* Unwait an open/write */waitingStream.notifyClose()
+                            } else if (msg.command == AdbProtocol.CMD_WRTE) {
+                                /* Got some data from our partner */
+                                waitingStream.addPayload(msg.payload!!)
+
+                                /* Tell it we're ready for more */waitingStream.sendReady()
+                            } else if (msg.command == AdbProtocol.CMD_CLSE) {
+                                /* He doesn't like us anymore :-( */
+                                currentAdbConnection.openStreams.remove(msg.arg1)
+
+                                /* Notify readers and writers */waitingStream.notifyClose()
                             }
                         }
-
-                        AdbProtocol.CMD_AUTH -> {
-                            var packet: AdbMessage
-                            if (msg.arg0 == AdbProtocol.AUTH_TYPE_TOKEN) {
-                                /* This is an authentication challenge */
-                                if (conn.sentSignature) {
-                                    /* We've already tried our signature, so send our public key */
-                                    packet = AdbProtocol.generateAuth(
-                                        AdbProtocol.AUTH_TYPE_RSA_PUBLIC,
-                                        conn.crypto?.adbPublicKeyPayload
-                                    )
-                                } else {
-                                    /* We'll sign the token */
-                                    packet = AdbProtocol.generateAuth(
-                                        AdbProtocol.AUTH_TYPE_SIGNATURE,
-                                        conn.crypto?.signAdbTokenPayload(msg.payload)
-                                    )
-                                    conn.sentSignature = true
-                                }
-
-                                /* Write the AUTH reply */conn.channel!!.writex(packet)
-                            }
-                        }
-
-                        AdbProtocol.CMD_CNXN -> synchronized(conn) {
-
-                            /* We need to store the max data size */
-                            conn.maxData = msg.arg1
-
-                            /* Mark us as connected and unwait anyone waiting on the connection */
-                            conn.connected = true
-
-                            val lock = Object()
-                            synchronized(lock) {
-                                conn.mnotifyAll(lock)
-                            }
-                        }
-
-                        else -> {}
                     }
-                } catch (e: Exception) {
-                    /* The cleanup is taken care of by a combination of this thread
-						 * and close() */
-                    e.printStackTrace()
-                    break
-                }
-            }
 
-            /* This thread takes care of cleaning up pending streams */synchronized(conn) {
-            cleanupStreams()
-            val lock = Object()
-            synchronized(lock) {
-                conn.mnotifyAll(lock)
+                    AdbProtocol.CMD_AUTH -> {
+                        var packet: AdbMessage
+                        if (msg.arg0 == AdbProtocol.AUTH_TYPE_TOKEN) {
+                            /* This is an authentication challenge */
+                            if (currentAdbConnection.sentSignature) {
+                                /* We've already tried our signature, so send our public key */
+                                packet = AdbProtocol.generateAuth(
+                                    AdbProtocol.AUTH_TYPE_RSA_PUBLIC,
+                                    currentAdbConnection.crypto?.adbPublicKeyPayload
+                                )
+                            } else {
+                                /* We'll sign the token */
+                                packet = AdbProtocol.generateAuth(
+                                    AdbProtocol.AUTH_TYPE_SIGNATURE,
+                                    currentAdbConnection.crypto?.signAdbTokenPayload(msg.payload)
+                                )
+                                currentAdbConnection.sentSignature = true
+                            }
+
+                            /* Write the AUTH reply */currentAdbConnection.channel!!.writex(
+                                packet
+                            )
+                        }
+                    }
+
+                    AdbProtocol.CMD_CNXN -> synchronized(currentAdbConnection) {
+
+                        /* We need to store the max data size */
+                        currentAdbConnection.maxData = msg.arg1
+
+                        /* Mark us as connected and unwait anyone waiting on the connection */
+                        currentAdbConnection.connected = true
+                    }
+
+                    else -> {}
+                }
+            } catch (e: Exception) {
+                /* The cleanup is taken care of by a combination of this thread
+                 * and close() */
+                e.printStackTrace()
+                return
             }
-            conn.connectAttempted = false
         }
-        })
     }
 
     /**
@@ -179,13 +194,8 @@ class AdbConnection private constructor() : Closeable {
     @Throws(InterruptedException::class, IOException::class)
     fun getMaxData(): Int {
         if (!connectAttempted) throw IllegalStateException("connect() must be called first")
-        synchronized(this) {
-
-            /* Block if a connection is pending, but not yet complete */if (!connected) mwait()
-            if (!connected) {
-                throw IOException("Connection failed")
-            }
-        }
+        /* Block if a connection is pending, but not yet complete */
+        connectionCheck()
         return maxData
     }
 
@@ -196,21 +206,29 @@ class AdbConnection private constructor() : Closeable {
      * @throws InterruptedException If we are unable to wait for the connection to finish
      */
     @Throws(IOException::class, InterruptedException::class)
-    fun connect() {
+    suspend fun connect() {
         if (connected) throw IllegalStateException("Already connected")
+        if(channel == null) {
+            Log.d("ADBConnection", "Channel is null, maybe target is unreachable")
+            return
+        }
 
-        /* Write the CONNECT packet */channel!!.writex(AdbProtocol.generateConnect())
-
-        /* Start the connection thread to respond to the peer */connectAttempted = true
-        connectionThread!!.start()
-
-        /* Wait for the connection to go live */
-        synchronized(this) {
-            if (!connected) mwait()
-            if (!connected) {
-                throw IOException("Connection failed")
+        // Write connecting state
+        connectionResult.changedState(ConnectionState.CONNECTING)
+        coroutineScope {
+            withTimeout(timeout) {
+                /* Отправляем запрос на подключение */
+                channel?.writex(AdbProtocol.generateConnect())
+                doAdbWork()
             }
         }
+
+
+        /* Start the connection thread to respond to the peer */
+        connectAttempted = true
+
+        /* Start Coroutine with timeout */
+
     }
 
     /**
@@ -222,17 +240,11 @@ class AdbConnection private constructor() : Closeable {
      * @throws java.io.IOException If the stream fails while sending the packet
      * @throws InterruptedException If we are unable to wait for the connection to finish
      */
-    @Throws(UnsupportedEncodingException::class, IOException::class, InterruptedException::class)
     fun open(destination: String?): AdbStream {
         val localId = ++lastLocalId
-        if (!connectAttempted) throw IllegalStateException("connect() must be called first")
+        if (!connectAttempted) throw Error("connect() must be called first")
 
-        /* Wait for the connect response */synchronized(this) {
-            if (!connected) mwait()
-            if (!connected) {
-                throw IOException("Connection failed")
-            }
-        }
+        connectionCheck()
 
         /* Add this stream to this list of half-open streams */
         val stream = AdbStream(this, localId)
@@ -268,50 +280,12 @@ class AdbConnection private constructor() : Closeable {
         /* No open streams anymore */openStreams.clear()
     }
 
-    /** This routine closes the Adb connection and underlying socket
-     * @throws java.io.IOException if the socket fails to close
-     */
-    @Throws(IOException::class)
-    override fun close() {
-        /* If the connection thread hasn't spawned yet, there's nothing to do */
-        if (connectionThread == null) return
-
-        /* Closing the channel will kick the connection thread */
-        channel!!.close()
-
-        /* Wait for the connection thread to die */connectionThread.interrupt()
-        try {
-            connectionThread.join()
-        } catch (e: InterruptedException) {
+    fun connectionCheck() {
+        if (!connected) runBlocking {
+            delay(3000)
+            coroutineScope {
+                if (!connected) throw Error("Connection refused!")
+            }
         }
-    }
-
-    companion object {
-        /**
-         * Creates a AdbConnection object associated with the socket and
-         * crypto object specified.
-         * @param channel The channel that the connection will use for communcation.
-         * @param crypto The crypto object that stores the key pair for authentication.
-         * @return A new AdbConnection object.
-         * @throws java.io.IOException If there is a socket error
-         */
-        @Throws(IOException::class)
-        fun create(channel: AdbChannel?, crypto: AdbCrypto?, delay: Long = 10_000): AdbConnection {
-            val newConn = AdbConnection()
-            newConn.delay = delay
-            newConn.crypto = crypto
-            newConn.channel = channel
-            return newConn
-        }
-    }
-
-    private fun mwait() {
-        runBlocking {
-            delay(delay)
-        }
-    }
-
-    fun mnotifyAll(lock: Object) {
-        lock.notifyAll()
     }
 }
