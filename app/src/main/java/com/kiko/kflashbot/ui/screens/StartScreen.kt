@@ -128,6 +128,10 @@ fun StartScreen(startViewModel: StartViewModel = hiltViewModel()) {
                     ConnectionState.CONNECTED -> {
                         Text(text = "Conntected")
                     }
+
+                    ConnectionState.TIMEOUT ->{
+                        Text(text = "Timeout")
+                    }
                 }
             }
         }

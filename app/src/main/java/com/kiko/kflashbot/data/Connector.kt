@@ -3,6 +3,7 @@ package com.kiko.kflashbot.data
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import com.kiko.kadblib.AdbConnection
 import com.kiko.kadblib.DefaultADBCrypto
 import com.kiko.kadblib.channel.TcpChannel
@@ -16,6 +17,8 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
 class Connector {
+    lateinit var adbConnection: AdbConnection
+
     fun connect(
         address: String,
         port: String,
@@ -23,42 +26,28 @@ class Connector {
         coroutineScope: CoroutineScope,
         mConnectionState: MutableState<ConnectionState>
     ) {
+
+        val result = object : ConnectionResult {
+            override fun changedState(connectionState: ConnectionState) {
+                mConnectionState.value = connectionState
+            }
+            override fun onError(error: Error) {
+                error
+            }
+        }
+
+
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                val result = object : ConnectionResult {
-                    override fun changedState(connectionState: ConnectionState) {
-                        when (connectionState) {
-                            ConnectionState.UNREACHABLE -> {
-                                mConnectionState.value = connectionState
-                            }
-
-                            else -> {
-
-                            }
-                        }
-                    }
-
-                    override fun onError(error: Error) {
-                        TODO("Not yet implemented")
-                    }
-
-                }
-
-
-                val adbConnection = AdbConnection.create(
+                adbConnection = AdbConnection.create(
                     channel = TcpChannel.create(address, port.toInt(), result),
                     crypto = DefaultADBCrypto.getDefault(context),
                     result
                 )
-
-                try {
-                    coroutineScope.launch {
-                        withContext(Dispatchers.IO) {
-                            adbConnection.connect()
-                        }
+                coroutineScope.launch {
+                    withContext(Dispatchers.IO) {
+                        adbConnection.connect()
                     }
-                } catch (error: java.io.IOException) {
-                    //TODO СДЕЛАТЬ ВЫВОД ОШИБКИ ПОДКЛЮЧЕНИЯ
                 }
             }
         }

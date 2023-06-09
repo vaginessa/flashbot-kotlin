@@ -5,6 +5,7 @@ import android.util.Log
 import com.kiko.kadblib.states.ConnectionResult
 import com.kiko.kadblib.states.ConnectionState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -98,88 +99,88 @@ class AdbConnection private constructor() {
 
     private fun doAdbWork() {
         val currentAdbConnection = this
-        while (true) {
-            try {
-                /* Read and parse a message off the socket's input stream */
-                Log.d("ADBConnector", channel.toString())
-                val msg: AdbMessage = AdbMessage.parseAdbMessage(channel!!)
+        try {
+            /* Read and parse a message off the socket's input stream */
+            Log.d("ADBConnector", "Start parsing adb message")
+            val msg: AdbMessage = AdbMessage.parseAdbMessage(channel!!)
 
 
-                Log.d("ADBConnector", AdbProtocol.validateMessage(msg).toString())
-                /* Verify magic and checksum */
-                if (!AdbProtocol.validateMessage(msg)) return
+            Log.d("ADBConnector", "Msg is ${msg.command}")
+            /* Verify magic and checksum */
+            if (!AdbProtocol.validateMessage(msg)) return
 
-                when (msg.command) {
-                    AdbProtocol.CMD_OKAY, AdbProtocol.CMD_WRTE, AdbProtocol.CMD_CLSE -> {
-                        /* We must ignore all packets when not connected */
-                        if (!currentAdbConnection.connected) return
+            when (msg.command) {
+                AdbProtocol.CMD_OKAY, AdbProtocol.CMD_WRTE, AdbProtocol.CMD_CLSE -> {
+                    /* We must ignore all packets when not connected */
+                    if (!currentAdbConnection.connected) return
 
-                        /* Get the stream object corresponding to the packet */
-                        val waitingStream: AdbStream = openStreams[msg.arg1] ?: return
+                    /* Get the stream object corresponding to the packet */
+                    val waitingStream: AdbStream = openStreams[msg.arg1] ?: return
 
-                        synchronized(waitingStream) {
-                            if (msg.command == AdbProtocol.CMD_OKAY) {
-                                /* We're ready for writes */
-                                waitingStream.updateRemoteId(msg.arg0)
-                                waitingStream.readyForWrite()
+                    synchronized(waitingStream) {
+                        if (msg.command == AdbProtocol.CMD_OKAY) {
+                            /* We're ready for writes */
+                            waitingStream.updateRemoteId(msg.arg0)
+                            waitingStream.readyForWrite()
 
-                                /* Unwait an open/write */waitingStream.notifyClose()
-                            } else if (msg.command == AdbProtocol.CMD_WRTE) {
-                                /* Got some data from our partner */
-                                waitingStream.addPayload(msg.payload!!)
+                            /* Unwait an open/write */waitingStream.notifyClose()
+                        } else if (msg.command == AdbProtocol.CMD_WRTE) {
+                            /* Got some data from our partner */
+                            waitingStream.addPayload(msg.payload!!)
 
-                                /* Tell it we're ready for more */waitingStream.sendReady()
-                            } else if (msg.command == AdbProtocol.CMD_CLSE) {
-                                /* He doesn't like us anymore :-( */
-                                currentAdbConnection.openStreams.remove(msg.arg1)
+                            /* Tell it we're ready for more */waitingStream.sendReady()
+                        } else if (msg.command == AdbProtocol.CMD_CLSE) {
+                            /* He doesn't like us anymore :-( */
+                            currentAdbConnection.openStreams.remove(msg.arg1)
 
-                                /* Notify readers and writers */waitingStream.notifyClose()
-                            }
+                            /* Notify readers and writers */waitingStream.notifyClose()
                         }
                     }
-
-                    AdbProtocol.CMD_AUTH -> {
-                        var packet: AdbMessage
-                        if (msg.arg0 == AdbProtocol.AUTH_TYPE_TOKEN) {
-                            /* This is an authentication challenge */
-                            if (currentAdbConnection.sentSignature) {
-                                /* We've already tried our signature, so send our public key */
-                                packet = AdbProtocol.generateAuth(
-                                    AdbProtocol.AUTH_TYPE_RSA_PUBLIC,
-                                    currentAdbConnection.crypto?.adbPublicKeyPayload
-                                )
-                            } else {
-                                /* We'll sign the token */
-                                packet = AdbProtocol.generateAuth(
-                                    AdbProtocol.AUTH_TYPE_SIGNATURE,
-                                    currentAdbConnection.crypto?.signAdbTokenPayload(msg.payload)
-                                )
-                                currentAdbConnection.sentSignature = true
-                            }
-
-                            /* Write the AUTH reply */currentAdbConnection.channel!!.writex(
-                                packet
-                            )
-                        }
-                    }
-
-                    AdbProtocol.CMD_CNXN -> synchronized(currentAdbConnection) {
-
-                        /* We need to store the max data size */
-                        currentAdbConnection.maxData = msg.arg1
-
-                        /* Mark us as connected and unwait anyone waiting on the connection */
-                        currentAdbConnection.connected = true
-                    }
-
-                    else -> {}
                 }
-            } catch (e: Exception) {
-                /* The cleanup is taken care of by a combination of this thread
-                 * and close() */
-                e.printStackTrace()
-                return
+
+                AdbProtocol.CMD_AUTH -> {
+                    var packet: AdbMessage
+                    if (msg.arg0 == AdbProtocol.AUTH_TYPE_TOKEN) {
+                        /* This is an authentication challenge */
+                        if (currentAdbConnection.sentSignature) {
+                            /* We've already tried our signature, so send our public key */
+                            packet = AdbProtocol.generateAuth(
+                                AdbProtocol.AUTH_TYPE_RSA_PUBLIC,
+                                currentAdbConnection.crypto?.adbPublicKeyPayload
+                            )
+                        } else {
+                            /* We'll sign the token */
+                            packet = AdbProtocol.generateAuth(
+                                AdbProtocol.AUTH_TYPE_SIGNATURE,
+                                currentAdbConnection.crypto?.signAdbTokenPayload(msg.payload)
+                            )
+                            currentAdbConnection.sentSignature = true
+                        }
+
+                        /* Write the AUTH reply */
+                        currentAdbConnection.channel!!.writex(
+                            packet
+                        )
+                    }
+                }
+
+                AdbProtocol.CMD_CNXN -> synchronized(currentAdbConnection) {
+
+                    /* We need to store the max data size */
+                    currentAdbConnection.maxData = msg.arg1
+
+                    /* Mark us as connected and unwait anyone waiting on the connection */
+                    currentAdbConnection.connected = true
+                }
+
+                else -> {}
             }
+        } catch (e: Exception) {
+            /* The cleanup is taken care of by a combination of this thread
+             * and close() */
+            connectionResult.onError(Error(e.message))
+            currentAdbConnection.cleanupStreams()
+            return
         }
     }
 
@@ -208,7 +209,7 @@ class AdbConnection private constructor() {
     @Throws(IOException::class, InterruptedException::class)
     suspend fun connect() {
         if (connected) throw IllegalStateException("Already connected")
-        if(channel == null) {
+        if (channel == null) {
             Log.d("ADBConnection", "Channel is null, maybe target is unreachable")
             return
         }
@@ -216,19 +217,30 @@ class AdbConnection private constructor() {
         // Write connecting state
         connectionResult.changedState(ConnectionState.CONNECTING)
         coroutineScope {
-            withTimeout(timeout) {
-                /* Отправляем запрос на подключение */
+            launch {
                 channel?.writex(AdbProtocol.generateConnect())
-                doAdbWork()
+
+                // Проверяем ответы от АДБ пока не подключено
+                while (!connected) {
+                    /* Отправляем запрос на подключение */
+                    doAdbWork()
+                }
+                connectionResult.changedState(ConnectionState.CONNECTED)
+                // Это нужная херь видимо, автор библиотеки попросил не удалять :)
+                open("shell:exec date")
+            }
+            launch {
+                delay(timeout)
+                // Проверяем есть ли коннект
+                connectionCheck()
+                if (!connected){
+                    // Закрываем корутину если в итоге нет подключения
+                    this.cancel()
+                }
             }
         }
-
-
         /* Start the connection thread to respond to the peer */
         connectAttempted = true
-
-        /* Start Coroutine with timeout */
-
     }
 
     /**
@@ -242,7 +254,7 @@ class AdbConnection private constructor() {
      */
     fun open(destination: String?): AdbStream {
         val localId = ++lastLocalId
-        if (!connectAttempted) throw Error("connect() must be called first")
+        if (!connected) throw Error("connect() must be called first")
 
         connectionCheck()
 
@@ -258,7 +270,6 @@ class AdbConnection private constructor() {
 
         /* Check if the open was rejected */
         if (stream.isClosed) throw ConnectException("Stream open actively rejected by remote peer")
-
         /* We're fully setup now */
         return stream
     }
@@ -284,7 +295,8 @@ class AdbConnection private constructor() {
         if (!connected) runBlocking {
             delay(3000)
             coroutineScope {
-                if (!connected) throw Error("Connection refused!")
+                if (!connected)
+                    connectionResult.changedState(ConnectionState.TIMEOUT)
             }
         }
     }
