@@ -3,9 +3,9 @@ package com.kiko.kflashbot.ui.viewmodel
 import android.content.Context
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
+import com.kiko.kadblib.adbbase.AdbConnection
 import com.kiko.kadblib.states.ConnectionState
 import com.kiko.kflashbot.data.Connector
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,6 +18,7 @@ class StartViewModel @Inject constructor() : ViewModel() {
     val isPairingDialogVisible: State<Boolean> = _isPairingDialogVisible
 
     val connectionState = mutableStateOf(ConnectionState.DISCONNECTED)
+    var adbConnection: AdbConnection? = null
 
     val ipAddressTextFieldValue =
         mutableStateOf(TextFieldValue("192.168.0.106"))

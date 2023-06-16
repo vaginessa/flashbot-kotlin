@@ -5,8 +5,8 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbRequest
-import com.kiko.kadblib.AdbChannel
-import com.kiko.kadblib.AdbMessage
+import com.kiko.kadblib.adbbase.AdbChannel
+import com.kiko.kadblib.adbbase.AdbMessage
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

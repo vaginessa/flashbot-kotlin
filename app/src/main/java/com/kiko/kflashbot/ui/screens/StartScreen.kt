@@ -35,14 +35,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kiko.kadblib.states.ConnectionState
 import com.kiko.kflashbot.data.Connector
 import com.kiko.kflashbot.ui.components.TextCard
+import com.kiko.kflashbot.ui.screens.destinations.FileScreenDestination
+import com.kiko.kflashbot.ui.screens.destinations.StartScreenDestination
 import com.kiko.kflashbot.ui.viewmodel.StartViewModel
 import com.ramcosta.composedestinations.annotation.Destination
 import com.ramcosta.composedestinations.annotation.RootNavGraph
+import com.ramcosta.composedestinations.navigation.DestinationsNavigator
 
 @Composable
 @Destination
 @RootNavGraph(start = true)
-fun StartScreen(startViewModel: StartViewModel = hiltViewModel()) {
+fun StartScreen(navigator: DestinationsNavigator, startViewModel: StartViewModel = hiltViewModel()) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {}
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -126,7 +129,7 @@ fun StartScreen(startViewModel: StartViewModel = hiltViewModel()) {
                     }
 
                     ConnectionState.CONNECTED -> {
-                        Text(text = "Conntected")
+                        navigator.navigate(FileScreenDestination)
                     }
 
                     ConnectionState.TIMEOUT ->{

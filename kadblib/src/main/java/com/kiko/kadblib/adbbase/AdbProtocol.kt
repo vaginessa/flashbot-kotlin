@@ -1,4 +1,4 @@
-package com.kiko.kadblib
+package com.kiko.kadblib.adbbase
 
 import java.io.UnsupportedEncodingException
 import java.nio.ByteBuffer

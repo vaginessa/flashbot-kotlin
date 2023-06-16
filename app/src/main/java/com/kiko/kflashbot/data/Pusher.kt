@@ -1,14 +1,11 @@
 package com.kiko.kflashbot.data
 
-import android.os.Handler
-import android.os.Message
 import android.util.Log
-import com.kiko.kadblib.AdbConnection
-import com.kiko.kadblib.AdbStream
+import com.kiko.kadblib.adbbase.AdbConnection
+import com.kiko.kadblib.adbbase.AdbStream
 import com.kiko.kflashbot.utils.ByteUtils
 import java.io.File
 import java.io.FileInputStream
-import java.io.IOException
 import java.io.InputStream
 
 class Pusher {
@@ -17,23 +14,44 @@ class Pusher {
     private var remotePath: String? = null
 
     fun push(adbConnection: AdbConnection?, local: File?, remotePath: String?) {
-        val stream: AdbStream = adbConnection!!.open("sync:")
+        Log.d("Pusher", "Start pushing file")
+        Log.d("Pusher", "Local file is: ${local?.path}")
+        Log.d("Pusher", "Local file existing: ${local?.exists()}")
+        Log.d("Pusher", "Local file can read: ${local?.canRead()}")
+        Log.d("Pusher", "Is ADBConnection nullable: ${adbConnection == null}")
+
+        val stream: AdbStream = adbConnection!!.open("shell:")
+
+        stream.write("reboot")
+
+        Log.d("Pusher", "Opened stream sync:")
         val sendId = "SEND"
         val mode = ",33206"
         val length = (remotePath + mode).length
-        stream.write(ByteUtils.concat(sendId.toByteArray(), ByteUtils.intToByteArray(length)))
+
+        Log.d("Pusher", "Length is: $length")
+        val bytes = ByteUtils.concat(sendId.toByteArray(), ByteUtils.intToByteArray(length))
+
+        Log.d("Pusher", "Bytes: ${bytes.joinToString(",")}")
+        stream.write(bytes)
+        Log.d("Pusher", "Concatinate with byteUtils")
+
         stream.write(remotePath!!.toByteArray())
         stream.write(mode.toByteArray())
-        val buff = ByteArray(adbConnection!!.getMaxData())
+        Log.d("Pusher", "Stream write bytes")
+
+        val buff = ByteArray(adbConnection.getMaxData())
         val `is`: InputStream = FileInputStream(local)
         var sent: Long = 0
         val total = local!!.length()
         var lastProgress = 0
+        Log.d("Pusher", "Continue pushing file")
         while (true) {
             val read = `is`.read(buff)
             if (read < 0) {
                 break
             }
+            Log.d("Pusher", "Start write data")
             stream.write(ByteUtils.concat("DATA".toByteArray(), ByteUtils.intToByteArray(read)))
             if (read == buff.size) {
                 stream.write(buff)
@@ -52,16 +70,22 @@ class Pusher {
                         progress
                     )
                 )*/
+                Log.d("Pusher", "Push: $progress")
+
                 lastProgress = progress
             }
         }
+        Log.d("Pusher", "Start Writing")
+
         stream.write(
             ByteUtils.concat(
                 "DONE".toByteArray(),
                 ByteUtils.intToByteArray(System.currentTimeMillis().toInt())
             )
         )
-        val res: ByteArray = stream.read()!!
+        Log.d("Pusher", "Done")
+
         stream.write(ByteUtils.concat("QUIT".toByteArray(), ByteUtils.intToByteArray(0)))
+        Log.d("Pusher", "Quited")
     }
 }

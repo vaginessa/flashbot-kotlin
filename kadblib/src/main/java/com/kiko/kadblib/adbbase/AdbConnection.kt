@@ -1,20 +1,14 @@
-package com.kiko.kadblib
+package com.kiko.kadblib.adbbase
 
-import android.content.Context
 import android.util.Log
-import com.kiko.kadblib.states.ConnectionResult
+import com.kiko.kadblib.results.ConnectionResult
 import com.kiko.kadblib.states.ConnectionState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import java.io.Closeable
 import java.io.IOException
-import java.io.UnsupportedEncodingException
 import java.net.ConnectException
 
 /**
@@ -194,9 +188,11 @@ class AdbConnection private constructor() {
      */
     @Throws(InterruptedException::class, IOException::class)
     fun getMaxData(): Int {
-        if (!connectAttempted) throw IllegalStateException("connect() must be called first")
+        if (!connected) throw IllegalStateException("connect() must be called first")
         /* Block if a connection is pending, but not yet complete */
-        connectionCheck()
+        runBlocking {
+            connectionCheck()
+        }
         return maxData
     }
 
@@ -233,7 +229,7 @@ class AdbConnection private constructor() {
                 delay(timeout)
                 // Проверяем есть ли коннект
                 connectionCheck()
-                if (!connected){
+                if (!connected) {
                     // Закрываем корутину если в итоге нет подключения
                     this.cancel()
                 }

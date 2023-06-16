@@ -1,10 +1,9 @@
 package com.kiko.kadblib.channel
 
-import android.content.Context
 import android.util.Log
-import com.kiko.kadblib.AdbChannel
-import com.kiko.kadblib.AdbMessage
-import com.kiko.kadblib.states.ConnectionResult
+import com.kiko.kadblib.adbbase.AdbChannel
+import com.kiko.kadblib.adbbase.AdbMessage
+import com.kiko.kadblib.results.ConnectionResult
 import com.kiko.kadblib.states.ConnectionState
 import java.io.IOException
 import java.io.InputStream

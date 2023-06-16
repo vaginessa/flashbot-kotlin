@@ -56,6 +56,8 @@ android {
 dependencies {
     implementation(project(":kadblib"))
 
+    implementation(libs.mpfilepicker)
+
     implementation(libs.accompanist.permissions)
 
     implementation(files("G:/Upominashka/wheelpicker.jar"))

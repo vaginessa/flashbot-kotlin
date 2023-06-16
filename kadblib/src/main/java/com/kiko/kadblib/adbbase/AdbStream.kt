@@ -1,8 +1,8 @@
-package com.kiko.kadblib
+package com.kiko.kadblib.adbbase
 
-import com.kiko.kadblib.AdbProtocol.generateClose
-import com.kiko.kadblib.AdbProtocol.generateReady
-import com.kiko.kadblib.AdbProtocol.generateWrite
+import com.kiko.kadblib.adbbase.AdbProtocol.generateClose
+import com.kiko.kadblib.adbbase.AdbProtocol.generateReady
+import com.kiko.kadblib.adbbase.AdbProtocol.generateWrite
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import java.io.Closeable

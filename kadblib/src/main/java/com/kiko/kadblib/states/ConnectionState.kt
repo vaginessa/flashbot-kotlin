@@ -7,8 +7,3 @@ enum class ConnectionState {
     UNREACHABLE,
     TIMEOUT
 }
-
-interface ConnectionResult{
-    fun changedState(connectionState: ConnectionState)
-    fun onError(error: Error)
-}

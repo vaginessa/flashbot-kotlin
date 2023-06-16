@@ -1,4 +1,4 @@
-package com.kiko.kadblib
+package com.kiko.kadblib.adbbase
 
 import android.content.Context
 import android.util.Log
